@@ -2,7 +2,6 @@ package com.securechat.app.data.remote
 
 import com.securechat.crypto.IdentityKeyPair
 import com.securechat.crypto.UserIdOwnershipProof
-import java.net.URLEncoder
 import java.util.Base64
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -50,10 +49,15 @@ class WebSocketClient(
     private fun openSocket(userId: String, identity: IdentityKeyPair) {
         val timestamp = System.currentTimeMillis()
         val signature = UserIdOwnershipProof.sign(identity, userId, timestamp)
-        val encodedSignature = URLEncoder.encode(Base64.getEncoder().encodeToString(signature), "UTF-8")
-        val url = "$wsBaseUrl/v1/ws/$userId?ts=$timestamp&sig=$encodedSignature"
+        val encodedSignature = Base64.getEncoder().encodeToString(signature)
 
-        val request = Request.Builder().url(url).build()
+        // Headers, not query parameters: this signature must never end up embedded in a URL that
+        // server/proxy access logs would capture verbatim.
+        val request = Request.Builder()
+            .url("$wsBaseUrl/v1/ws/$userId")
+            .header(OWNERSHIP_TIMESTAMP_HEADER, timestamp.toString())
+            .header(OWNERSHIP_SIGNATURE_HEADER, encodedSignature)
+            .build()
         socket = client.newWebSocket(
             request,
             object : WebSocketListener() {

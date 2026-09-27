@@ -3,19 +3,15 @@ package com.securechat.app.data.remote
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 
 object ApiClient {
     fun create(baseUrl: String, json: Json): ServerApi {
-        val logging = HttpLoggingInterceptor().apply {
-            // BASIC only: message bodies are encrypted envelopes and must never hit logcat.
-            level = HttpLoggingInterceptor.Level.BASIC
-        }
-        val client = OkHttpClient.Builder()
-            .addInterceptor(logging)
-            .build()
+        // No logging interceptor: even at a metadata-only level, request URLs carry a userId and
+        // a signed ownership proof (ts/sig) in their query string, and logcat is readable by other
+        // apps on some older/rooted devices - there's no operational need to write any of that out.
+        val client = OkHttpClient.Builder().build()
 
         val retrofit = Retrofit.Builder()
             .baseUrl(baseUrl)

@@ -190,6 +190,15 @@ class ServerStorage(databasePath: String) {
         }
     }
 
+    suspend fun countQueuedMessages(recipientUserId: String): Int = withContext(Dispatchers.IO) {
+        synchronized(connection) {
+            connection.prepareStatement("SELECT COUNT(*) FROM messages WHERE recipient_user_id = ?").use { ps ->
+                ps.setString(1, recipientUserId)
+                ps.executeQuery().use { rs -> rs.next(); rs.getInt(1) }
+            }
+        }
+    }
+
     suspend fun fetchMessages(userId: String): List<StoredMessageDto> = withContext(Dispatchers.IO) {
         synchronized(connection) {
             connection.prepareStatement(

@@ -1,8 +1,10 @@
 package com.securechat.server
 
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationCallPipeline
 import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.application.log
@@ -17,6 +19,7 @@ import io.ktor.server.plugins.hsts.HSTS
 import io.ktor.server.plugins.origin
 import io.ktor.server.plugins.ratelimit.RateLimit
 import io.ktor.server.plugins.statuspages.StatusPages
+import io.ktor.server.request.header
 import io.ktor.server.request.uri
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
@@ -25,6 +28,8 @@ import io.ktor.server.websocket.WebSockets
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.serialization.json.Json
 import org.slf4j.event.Level
+
+private const val MAX_REQUEST_BODY_BYTES = 256 * 1024L
 
 fun main() {
     val port = System.getenv("PORT")?.toIntOrNull() ?: 8080
@@ -47,6 +52,17 @@ fun Application.module(databasePath: String = "securechat.db") {
     // every plugin after it (rate limiting by IP, HSTS's HTTPS check) sees the real values
     // instead of the edge's own.
     install(XForwardedHeaders)
+
+    // Rejects an oversized request before it's ever buffered or parsed - the largest legitimate
+    // body (a registration with a full one-time-prekey batch) is a few KB, so 256 KB leaves ample
+    // headroom while still bounding how much a single request can force the server to hold.
+    intercept(ApplicationCallPipeline.Plugins) {
+        val contentLength = call.request.header(HttpHeaders.ContentLength)?.toLongOrNull()
+        if (contentLength != null && contentLength > MAX_REQUEST_BODY_BYTES) {
+            call.respond(HttpStatusCode.PayloadTooLarge, ErrorResponse("Request body too large"))
+            finish()
+        }
+    }
 
     install(ContentNegotiation) { json(json) }
     install(WebSockets) {

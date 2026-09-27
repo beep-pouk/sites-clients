@@ -9,7 +9,9 @@ import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
+import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
@@ -19,7 +21,6 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.testing.testApplication
 import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
-import java.net.URLEncoder
 import java.nio.file.Files
 import java.util.Base64
 import org.junit.Assert.assertEquals
@@ -68,11 +69,12 @@ class ApplicationTest {
 
     private fun bobRegister() = bobUser().registerRequest
 
-    /** Query string proving [user] owns their own userId, for the endpoints that require it. */
-    private fun ownershipQuery(user: TestUser): String {
+    /** Headers proving [user] owns their own userId, for the endpoints that require it. */
+    private fun HttpRequestBuilder.withOwnership(user: TestUser) {
         val timestamp = System.currentTimeMillis()
         val signature = UserIdOwnershipProof.sign(user.identity, user.userId, timestamp)
-        return "ts=$timestamp&sig=${URLEncoder.encode(encode(signature), "UTF-8")}"
+        header(OWNERSHIP_TIMESTAMP_HEADER, timestamp.toString())
+        header(OWNERSHIP_SIGNATURE_HEADER, encode(signature))
     }
 
     @Test
@@ -111,29 +113,30 @@ class ApplicationTest {
         application { module(tempDbPath()) }
         val client = createClient { install(ContentNegotiation) { json() } }
 
+        val alice = aliceUser()
         val bob = bobUser()
-        client.post("/v1/register") { contentType(ContentType.Application.Json); setBody(aliceRegister()) }
+        client.post("/v1/register") { contentType(ContentType.Application.Json); setBody(alice.registerRequest) }
         client.post("/v1/register") { contentType(ContentType.Application.Json); setBody(bob.registerRequest) }
 
-        val send = client.post("/v1/messages") {
+        val send = client.post("/v1/messages") { withOwnership(alice)
             contentType(ContentType.Application.Json)
             setBody(SendMessageRequest("bob", "alice", "base64-opaque-ciphertext", isHandshake = true))
         }
         assertEquals(HttpStatusCode.OK, send.status)
         val sendBody = send.body<SendMessageResponse>()
 
-        val inbox = client.get("/v1/messages/bob?${ownershipQuery(bob)}").body<List<StoredMessageDto>>()
+        val inbox = client.get("/v1/messages/bob") { withOwnership(bob) }.body<List<StoredMessageDto>>()
         assertEquals(1, inbox.size)
         assertEquals("base64-opaque-ciphertext", inbox[0].ciphertextEnvelope)
         assertEquals(sendBody.messageId, inbox[0].messageId)
 
-        val ack = client.post("/v1/messages/bob/ack?${ownershipQuery(bob)}") {
+        val ack = client.post("/v1/messages/bob/ack") { withOwnership(bob)
             contentType(ContentType.Application.Json)
             setBody(AckRequest(listOf(sendBody.messageId)))
         }
         assertEquals(HttpStatusCode.OK, ack.status)
 
-        val inboxAfterAck = client.get("/v1/messages/bob?${ownershipQuery(bob)}").body<List<StoredMessageDto>>()
+        val inboxAfterAck = client.get("/v1/messages/bob") { withOwnership(bob) }.body<List<StoredMessageDto>>()
         assertTrue(inboxAfterAck.isEmpty())
     }
 
@@ -143,9 +146,10 @@ class ApplicationTest {
         val client = createClient { install(ContentNegotiation) { json() } }
 
         val bob = bobUser()
+        val alice = aliceUser()
         client.post("/v1/register") { contentType(ContentType.Application.Json); setBody(bob.registerRequest) }
-        client.post("/v1/register") { contentType(ContentType.Application.Json); setBody(aliceRegister()) }
-        client.post("/v1/messages") {
+        client.post("/v1/register") { contentType(ContentType.Application.Json); setBody(alice.registerRequest) }
+        client.post("/v1/messages") { withOwnership(alice)
             contentType(ContentType.Application.Json)
             setBody(SendMessageRequest("bob", "alice", "top-secret-ciphertext", isHandshake = true))
         }
@@ -154,7 +158,7 @@ class ApplicationTest {
         assertEquals(HttpStatusCode.Forbidden, fetchWithoutProof.status)
 
         val eve = aliceUser() // a different, unrelated identity - not bob's
-        val fetchWithWrongProof = client.get("/v1/messages/bob?${ownershipQuery(eve.copy(userId = "bob"))}")
+        val fetchWithWrongProof = client.get("/v1/messages/bob") { withOwnership(eve.copy(userId = "bob")) }
         assertEquals(HttpStatusCode.Forbidden, fetchWithWrongProof.status)
 
         val ackWithoutProof = client.post("/v1/messages/bob/ack") {
@@ -164,7 +168,7 @@ class ApplicationTest {
         assertEquals(HttpStatusCode.Forbidden, ackWithoutProof.status)
 
         // The message must still be sitting there, unread and undeleted, for its real owner.
-        val realInbox = client.get("/v1/messages/bob?${ownershipQuery(bob)}").body<List<StoredMessageDto>>()
+        val realInbox = client.get("/v1/messages/bob") { withOwnership(bob) }.body<List<StoredMessageDto>>()
         assertEquals(1, realInbox.size)
     }
 
@@ -179,6 +183,104 @@ class ApplicationTest {
             setBody(SendMessageRequest("nobody", "alice", "ciphertext", isHandshake = true))
         }
         assertEquals(HttpStatusCode.NotFound, send.status)
+    }
+
+    @Test
+    fun `sending a message while impersonating another registered user's senderUserId is forbidden`() = testApplication {
+        application { module(tempDbPath()) }
+        val client = createClient { install(ContentNegotiation) { json() } }
+
+        val alice = aliceUser()
+        val bob = bobUser()
+        val mallory = testUser("mallory")
+        client.post("/v1/register") { contentType(ContentType.Application.Json); setBody(alice.registerRequest) }
+        client.post("/v1/register") { contentType(ContentType.Application.Json); setBody(bob.registerRequest) }
+        client.post("/v1/register") { contentType(ContentType.Application.Json); setBody(mallory.registerRequest) }
+
+        // No proof at all.
+        val noProof = client.post("/v1/messages") {
+            contentType(ContentType.Application.Json)
+            setBody(SendMessageRequest("bob", "alice", "forged-as-alice", isHandshake = true))
+        }
+        assertEquals(HttpStatusCode.Forbidden, noProof.status)
+
+        // A real, validly-signed proof - but for mallory's own id, not the alice she's claiming
+        // to be as senderUserId. Without this check the server would have happily relayed this
+        // to bob under alice's name, and bob's client - trusting the label - could have let it
+        // clobber an already-established, working session with the real alice.
+        val wrongProof = client.post("/v1/messages") { withOwnership(mallory)
+            contentType(ContentType.Application.Json)
+            setBody(SendMessageRequest("bob", "alice", "forged-as-alice", isHandshake = true))
+        }
+        assertEquals(HttpStatusCode.Forbidden, wrongProof.status)
+
+        val bobsInbox = client.get("/v1/messages/bob") { withOwnership(bob) }.body<List<StoredMessageDto>>()
+        assertTrue(bobsInbox.isEmpty())
+    }
+
+    @Test
+    fun `registration rejects malformed userId, oversized key fields, and prekey floods`() = testApplication {
+        application { module(tempDbPath()) }
+        val client = createClient { install(ContentNegotiation) { json() } }
+
+        val badUserId = client.post("/v1/register") {
+            contentType(ContentType.Application.Json)
+            setBody(registerRequestFor("not a valid id!"))
+        }
+        assertEquals(HttpStatusCode.BadRequest, badUserId.status)
+
+        val tooManyPreKeys = client.post("/v1/register") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                registerRequestFor(
+                    "flooder",
+                    oneTimePreKeys = OneTimePreKeyPair.generateBatch(startId = 1, count = 101),
+                ),
+            )
+        }
+        assertEquals(HttpStatusCode.BadRequest, tooManyPreKeys.status)
+    }
+
+    @Test
+    fun `sending an oversized ciphertext envelope is rejected`() = testApplication {
+        application { module(tempDbPath()) }
+        val client = createClient { install(ContentNegotiation) { json() } }
+
+        val alice = aliceUser()
+        val bob = bobUser()
+        client.post("/v1/register") { contentType(ContentType.Application.Json); setBody(alice.registerRequest) }
+        client.post("/v1/register") { contentType(ContentType.Application.Json); setBody(bob.registerRequest) }
+
+        val send = client.post("/v1/messages") { withOwnership(alice)
+            contentType(ContentType.Application.Json)
+            setBody(SendMessageRequest("bob", "alice", "x".repeat(200_001), isHandshake = false))
+        }
+        assertEquals(HttpStatusCode.BadRequest, send.status)
+    }
+
+    @Test
+    fun `a recipient's full message queue rejects further sends instead of growing without bound`() = testApplication {
+        val dbPath = tempDbPath()
+        application { module(dbPath) }
+        val client = createClient { install(ContentNegotiation) { json() } }
+
+        val alice = aliceUser()
+        val bob = bobUser()
+        client.post("/v1/register") { contentType(ContentType.Application.Json); setBody(alice.registerRequest) }
+        client.post("/v1/register") { contentType(ContentType.Application.Json); setBody(bob.registerRequest) }
+
+        // Fills bob's queue directly through storage - bypassing the per-IP send-rate limit -
+        // so the test reaches the cap without hundreds of real HTTP round-trips.
+        val storage = ServerStorage(dbPath)
+        repeat(MAX_QUEUED_MESSAGES_PER_RECIPIENT) {
+            storage.storeMessage(SendMessageRequest("bob", "alice", "filler", isHandshake = false))
+        }
+
+        val send = client.post("/v1/messages") { withOwnership(alice)
+            contentType(ContentType.Application.Json)
+            setBody(SendMessageRequest("bob", "alice", "one-too-many", isHandshake = false))
+        }
+        assertEquals(HttpStatusCode.TooManyRequests, send.status)
     }
 
     @Test
@@ -241,17 +343,20 @@ class ApplicationTest {
         }
 
         // No one else can subscribe to ws-user's push feed without their private signing key.
-        wsClient.webSocket("/v1/ws/ws-user?ts=${System.currentTimeMillis()}&sig=bm90LWEtcmVhbC1zaWc=") {
+        wsClient.webSocket("/v1/ws/ws-user", request = {
+            header(OWNERSHIP_TIMESTAMP_HEADER, System.currentTimeMillis().toString())
+            header(OWNERSHIP_SIGNATURE_HEADER, "bm90LWEtcmVhbC1zaWc=")
+        }) {
             val reason = closeReason.await()
             assertEquals(CloseReason.Codes.VIOLATED_POLICY.code, reason?.code)
         }
 
         // The real owner, signing with their own identity, is let in and receives live pushes.
-        restClient.post("/v1/register") { contentType(ContentType.Application.Json); setBody(aliceRegister()) }
-        val timestamp = System.currentTimeMillis()
-        val signature = Base64.getEncoder().encodeToString(UserIdOwnershipProof.sign(identity, "ws-user", timestamp))
-        wsClient.webSocket("/v1/ws/ws-user?ts=$timestamp&sig=${URLEncoder.encode(signature, "UTF-8")}") {
-            restClient.post("/v1/messages") {
+        val alice = aliceUser()
+        restClient.post("/v1/register") { contentType(ContentType.Application.Json); setBody(alice.registerRequest) }
+        val wsUser = TestUser("ws-user", identity, registerRequestFor("ws-user", identity, signedPreKey))
+        wsClient.webSocket("/v1/ws/ws-user", request = { withOwnership(wsUser) }) {
+            restClient.post("/v1/messages") { withOwnership(alice)
                 contentType(ContentType.Application.Json)
                 setBody(SendMessageRequest("ws-user", "alice", "hello-push", isHandshake = false))
             }

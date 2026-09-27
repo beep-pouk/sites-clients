@@ -91,14 +91,7 @@ class ChatRepository(
             usedOneTimePreKeyId = handshake.usedOneTimePreKeyId,
             firstMessage = handshake.firstMessage.toDto(),
         )
-        serverApi.sendMessage(
-            SendMessageRequest(
-                recipientUserId = peerUserId,
-                senderUserId = keyRepository.localUserId,
-                ciphertextEnvelope = json.encodeToString(envelope),
-                isHandshake = true,
-            ),
-        ).requireSuccessful("send message")
+        sendSigned(peerUserId, json.encodeToString(envelope), isHandshake = true)
     }
 
     private suspend fun sendWithExistingSession(peerUserId: String, sessionEntity: SessionEntity, plaintext: String) {
@@ -108,12 +101,19 @@ class ChatRepository(
         val message = session.encrypt(plaintext.toByteArray(Charsets.UTF_8))
         persistSession(peerUserId, session, sessionEntity.localWasInitiator)
 
+        sendSigned(peerUserId, json.encodeToString(message.toDto()), isHandshake = false)
+    }
+
+    private suspend fun sendSigned(peerUserId: String, ciphertextEnvelope: String, isHandshake: Boolean) {
+        val auth = OwnershipAuth.current(keyRepository.loadIdentity(), keyRepository.localUserId)
         serverApi.sendMessage(
-            SendMessageRequest(
+            ts = auth.timestamp,
+            sig = auth.signature,
+            request = SendMessageRequest(
                 recipientUserId = peerUserId,
                 senderUserId = keyRepository.localUserId,
-                ciphertextEnvelope = json.encodeToString(message.toDto()),
-                isHandshake = false,
+                ciphertextEnvelope = ciphertextEnvelope,
+                isHandshake = isHandshake,
             ),
         ).requireSuccessful("send message")
     }
