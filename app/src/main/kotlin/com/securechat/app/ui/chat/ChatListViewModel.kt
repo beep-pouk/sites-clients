@@ -45,7 +45,7 @@ class ChatListViewModel(private val container: AppContainer) : ViewModel() {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
-        container.webSocketClient.connect(container.keyRepository.localUserId)
+        container.webSocketClient.connect(container.keyRepository.localUserId, container.keyRepository.loadIdentity())
         viewModelScope.launch {
             while (true) {
                 runCatching { container.chatRepository.syncIncomingMessages() }

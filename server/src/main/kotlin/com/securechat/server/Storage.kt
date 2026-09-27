@@ -159,6 +159,15 @@ class ServerStorage(databasePath: String) {
         }
     }
 
+    /** The identity signing key currently on file for [userId], if registered - used to verify
+     *  that a re-registration is signed by the same identity, not a hijack attempt. */
+    fun getIdentitySigningKey(userId: String): String? = synchronized(connection) {
+        connection.prepareStatement("SELECT identity_signing_key FROM users WHERE user_id = ?").use { ps ->
+            ps.setString(1, userId)
+            ps.executeQuery().use { rs -> if (rs.next()) rs.getString(1) else null }
+        }
+    }
+
     suspend fun storeMessage(request: SendMessageRequest): StoredMessageDto = withContext(Dispatchers.IO) {
         synchronized(connection) {
             val now = System.currentTimeMillis()

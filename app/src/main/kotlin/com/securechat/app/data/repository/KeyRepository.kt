@@ -2,6 +2,7 @@ package com.securechat.app.data.repository
 
 import com.securechat.app.data.keystore.SecureKeyStorage
 import com.securechat.app.data.remote.OneTimePreKeyDto
+import com.securechat.app.data.remote.OwnershipAuth
 import com.securechat.app.data.remote.RegisterRequest
 import com.securechat.app.data.remote.ServerApi
 import com.securechat.app.data.remote.SignedPreKeyDto
@@ -12,6 +13,7 @@ import com.securechat.crypto.OneTimePreKeyPair
 import com.securechat.crypto.OneTimePreKeyPublic
 import com.securechat.crypto.PreKeyBundle
 import com.securechat.crypto.PublicIdentity
+import com.securechat.crypto.RegistrationProof
 import com.securechat.crypto.SignedPreKeyPair
 import com.securechat.crypto.SignedPreKeyPublic
 import java.util.Base64
@@ -35,6 +37,7 @@ class KeyRepository(private val keyStorage: SecureKeyStorage, private val server
             keyStorage.saveOneTimePreKeys(oneTimePreKeys)
         }
 
+        val registrationSignature = RegistrationProof.sign(identity, signedPreKey.publicKey)
         serverApi.register(
             RegisterRequest(
                 userId = localUserId,
@@ -42,6 +45,7 @@ class KeyRepository(private val keyStorage: SecureKeyStorage, private val server
                 identityAgreementKey = encode(identity.agreementPublicKey),
                 signedPreKey = SignedPreKeyDto(signedPreKey.keyId, encode(signedPreKey.publicKey), encode(signedPreKey.signature)),
                 oneTimePreKeys = oneTimePreKeys.map { OneTimePreKeyDto(it.keyId, encode(it.publicKey)) },
+                signature = encode(registrationSignature),
             ),
         ).requireSuccessful("register")
         return identity
@@ -68,8 +72,11 @@ class KeyRepository(private val keyStorage: SecureKeyStorage, private val server
         val startId = keyStorage.nextOneTimePreKeyId()
         val fresh = OneTimePreKeyPair.generateBatch(startId, ONE_TIME_PREKEY_BATCH_SIZE)
         keyStorage.saveOneTimePreKeys(remaining + fresh)
+        val auth = OwnershipAuth.current(loadIdentity(), localUserId)
         serverApi.uploadOneTimePreKeys(
             localUserId,
+            auth.timestamp,
+            auth.signature,
             UploadOneTimePreKeysRequest(fresh.map { OneTimePreKeyDto(it.keyId, encode(it.publicKey)) }),
         ).requireSuccessful("upload one-time prekeys")
     }

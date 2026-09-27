@@ -8,6 +8,7 @@ import com.securechat.app.data.local.SessionDao
 import com.securechat.app.data.local.SessionEntity
 import com.securechat.app.data.remote.AckRequest
 import com.securechat.app.data.remote.HandshakeEnvelopeDto
+import com.securechat.app.data.remote.OwnershipAuth
 import com.securechat.app.data.remote.RatchetHeaderDto
 import com.securechat.app.data.remote.RatchetMessageDto
 import com.securechat.app.data.remote.SendMessageRequest
@@ -119,7 +120,9 @@ class ChatRepository(
 
     /** Fetches, decrypts, and stores any messages queued for the local user; call periodically. */
     suspend fun syncIncomingMessages() = sessionLock.withLock {
-        val pending = serverApi.fetchMessages(keyRepository.localUserId).body().orEmpty()
+        val identity = keyRepository.loadIdentity()
+        val fetchAuth = OwnershipAuth.current(identity, keyRepository.localUserId)
+        val pending = serverApi.fetchMessages(keyRepository.localUserId, fetchAuth.timestamp, fetchAuth.signature).body().orEmpty()
         if (pending.isEmpty()) return@withLock
 
         for (stored in pending) {
@@ -134,7 +137,8 @@ class ChatRepository(
                 }
             }
         }
-        serverApi.acknowledgeMessages(keyRepository.localUserId, AckRequest(pending.map { it.messageId }))
+        val ackAuth = OwnershipAuth.current(identity, keyRepository.localUserId)
+        serverApi.acknowledgeMessages(keyRepository.localUserId, ackAuth.timestamp, ackAuth.signature, AckRequest(pending.map { it.messageId }))
             .requireSuccessful("acknowledge messages")
         keyRepository.replenishOneTimePreKeysIfLow()
     }

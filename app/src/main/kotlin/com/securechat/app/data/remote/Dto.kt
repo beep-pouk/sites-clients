@@ -20,6 +20,13 @@ data class RegisterRequest(
     val identityAgreementKey: String,
     val signedPreKey: SignedPreKeyDto,
     val oneTimePreKeys: List<OneTimePreKeyDto> = emptyList(),
+    /**
+     * Ed25519 signature (base64) over identitySigningKey||identityAgreementKey||signedPreKey.publicKey,
+     * made with this identity's own signing private key. The server requires this to match the
+     * signing key it already has on file before allowing an update to an existing userId, so a
+     * stranger who merely learns a userId can't hijack that identity by re-registering it.
+     */
+    val signature: String,
 )
 
 @Serializable
