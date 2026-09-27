@@ -242,6 +242,24 @@ class ApplicationTest {
     }
 
     @Test
+    fun `first registration must prove possession of the submitted identity key`() = testApplication {
+        application { module(tempDbPath()) }
+        val client = createClient { install(ContentNegotiation) { json() } }
+
+        // Mallory copies alice's real public keys under a new, never-registered userId but can't
+        // sign for them - the signature comes from mallory's own unrelated identity.
+        val alice = aliceUser()
+        val mallorysOwn = registerRequestFor("look-alike")
+        val cloned = alice.registerRequest.copy(userId = "look-alike", signature = mallorysOwn.signature)
+        val response = client.post("/v1/register") {
+            contentType(ContentType.Application.Json)
+            setBody(cloned)
+        }
+        assertEquals(HttpStatusCode.Forbidden, response.status)
+        assertEquals(HttpStatusCode.NotFound, client.get("/v1/prekeys/look-alike").status)
+    }
+
+    @Test
     fun `sending an oversized ciphertext envelope is rejected`() = testApplication {
         application { module(tempDbPath()) }
         val client = createClient { install(ContentNegotiation) { json() } }

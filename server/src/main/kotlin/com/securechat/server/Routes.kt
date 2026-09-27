@@ -56,12 +56,13 @@ fun Route.registerRoutes(storage: ServerStorage, connections: ConnectionRegistry
             post("/register") {
                 val request = call.receive<RegisterRequest>()
                 request.validate()
-                val existingSigningKey = storage.getIdentitySigningKey(request.userId)
-                if (existingSigningKey != null && !RegistrationAuth.verifiesAgainstExistingIdentity(request, existingSigningKey)) {
-                    return@post call.respond(
-                        HttpStatusCode.Forbidden,
-                        ErrorResponse("Registration signature does not match the identity already on file for this userId"),
-                    )
+                // An existing userId must be re-signed by the key already on file (no hijacking);
+                // a new one must be signed by the key it submits (proof of possession - otherwise
+                // anyone could register keys they don't hold, e.g. a copy of someone else's public
+                // identity under a look-alike userId).
+                val verificationKey = storage.getIdentitySigningKey(request.userId) ?: request.identitySigningKey
+                if (!RegistrationAuth.verifiesAgainstExistingIdentity(request, verificationKey)) {
+                    return@post call.respond(HttpStatusCode.Forbidden, ErrorResponse("Invalid registration signature"))
                 }
                 storage.registerUser(request)
                 call.respond(HttpStatusCode.OK)
