@@ -24,7 +24,7 @@ private data class RatchetSessionStateDto(
 object SessionCodec {
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun encode(state: RatchetSessionState): String {
+    fun encodeState(state: RatchetSessionState): String {
         val dto = RatchetSessionStateDto(
             selfRatchetPrivateKey = encode(state.selfRatchetPrivateKey),
             selfRatchetPublicKey = encode(state.selfRatchetPublicKey),
@@ -40,7 +40,7 @@ object SessionCodec {
         return json.encodeToString(dto)
     }
 
-    fun decode(text: String): RatchetSessionState {
+    fun decodeState(text: String): RatchetSessionState {
         val dto = json.decodeFromString<RatchetSessionStateDto>(text)
         return RatchetSessionState(
             selfRatchetPrivateKey = decode(dto.selfRatchetPrivateKey),

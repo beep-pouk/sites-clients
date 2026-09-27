@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-build-only override of the main network security config: permits cleartext HTTP/WS to any
+  host, since a debug build is expected to talk to a relay server run ad hoc on a developer's
+  machine at whatever LAN IP it has that day. This file is never packaged into a release build.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

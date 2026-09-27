@@ -192,7 +192,7 @@ class ChatRepository(
     private fun restoreSession(peerUserId: String, entity: SessionEntity, pinnedPeerIdentity: PublicIdentity): SecureChatSession =
         SecureChatSession.resume(
             peerUserId = peerUserId,
-            state = SessionCodec.decode(entity.stateJson),
+            state = SessionCodec.decodeState(entity.stateJson),
             localIdentity = keyRepository.loadPublicIdentity(),
             remoteIdentity = pinnedPeerIdentity,
             localWasInitiator = entity.localWasInitiator,
@@ -202,7 +202,7 @@ class ChatRepository(
         sessionDao.upsert(
             SessionEntity(
                 peerUserId = peerUserId,
-                stateJson = SessionCodec.encode(session.exportState()),
+                stateJson = SessionCodec.encodeState(session.exportState()),
                 localWasInitiator = localWasInitiator,
                 updatedAtMillis = System.currentTimeMillis(),
             ),

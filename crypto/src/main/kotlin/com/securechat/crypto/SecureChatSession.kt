@@ -18,16 +18,16 @@ class SecureChatSession private constructor(
 
     fun exportState(): RatchetSessionState = ratchet.exportState()
 
-    companion object {
-        /** Everything Bob needs, alongside his own keys, to accept Alice's first message. */
-        data class InitialHandshake(
-            val initiatorUserId: String,
-            val initiatorIdentity: PublicIdentity,
-            val initiatorEphemeralPublicKey: ByteArray,
-            val usedOneTimePreKeyId: Int?,
-            val firstMessage: RatchetMessage,
-        )
+    /** Everything Bob needs, alongside his own keys, to accept Alice's first message. */
+    data class InitialHandshake(
+        val initiatorUserId: String,
+        val initiatorIdentity: PublicIdentity,
+        val initiatorEphemeralPublicKey: ByteArray,
+        val usedOneTimePreKeyId: Int?,
+        val firstMessage: RatchetMessage,
+    )
 
+    companion object {
         fun startAsInitiator(
             selfUserId: String,
             selfIdentity: IdentityKeyPair,

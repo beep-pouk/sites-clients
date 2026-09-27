@@ -3,7 +3,7 @@ kotlin = "1.9.24"
 agp = "8.5.2"
 coroutines = "1.8.1"
 serialization = "1.6.3"
-tink = "1.14.1"
+tink = "1.8.0"
 junit = "4.13.2"
 
 compileSdk = "34"
@@ -32,7 +32,7 @@ sqliteJdbc = "3.46.0.0"
 [libraries]
 kotlin-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
-tink = { module = "com.google.crypto.tink:tink", version.ref = "tink" }
+tink = { module = "com.google.crypto.tink:tink-android", version.ref = "tink" }
 junit = { module = "junit:junit", version.ref = "junit" }
 
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
