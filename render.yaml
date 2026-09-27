@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: securechat-relay
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_PATH
+        value: securechat.db

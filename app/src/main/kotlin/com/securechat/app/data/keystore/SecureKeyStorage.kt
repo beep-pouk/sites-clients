@@ -43,6 +43,11 @@ class SecureKeyStorage(context: Context) {
 
     fun loadDisplayName(): String? = prefs.getString(KEY_DISPLAY_NAME, null)
 
+    /** e.g. "https://securechat-relay.onrender.com" - takes effect on next app start. */
+    fun saveServerBaseUrl(url: String) = prefs.edit().putString(KEY_SERVER_BASE_URL, url).apply()
+
+    fun loadServerBaseUrl(): String? = prefs.getString(KEY_SERVER_BASE_URL, null)
+
     fun getOrCreateLocalUserId(): String {
         prefs.getString(KEY_LOCAL_USER_ID, null)?.let { return it }
         val id = java.util.UUID.randomUUID().toString()
@@ -132,6 +137,7 @@ class SecureKeyStorage(context: Context) {
     companion object {
         private const val KEY_LOCAL_USER_ID = "local_user_id"
         private const val KEY_DISPLAY_NAME = "display_name"
+        private const val KEY_SERVER_BASE_URL = "server_base_url"
         private const val KEY_DB_PASSPHRASE = "db_passphrase"
         private const val KEY_IDENTITY = "identity"
         private const val KEY_SIGNED_PREKEY = "signed_prekey"

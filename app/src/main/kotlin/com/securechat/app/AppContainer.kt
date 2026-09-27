@@ -15,13 +15,24 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
 /**
- * Where the relay server lives. The emulator-friendly defaults point `10.0.2.2` at the host
- * machine's loopback interface, matching `server/README` instructions for running it locally;
- * point these at a real deployment's HTTPS/WSS origin for anything beyond local development.
+ * Where the relay server lives. Defaults to the Android emulator's alias for the host machine's
+ * loopback interface, matching `server/README` instructions for running it locally. A real
+ * device can override this at runtime from Settings (persisted via [SecureKeyStorage]), so
+ * pointing the app at a real deployment - e.g. the Render URL from `DEPLOY.md` - never requires
+ * rebuilding the app, only restarting it so [AppContainer] re-reads the saved value.
  */
 object ServerConfig {
-    const val HTTP_BASE_URL = "http://10.0.2.2:8080/"
-    const val WS_BASE_URL = "ws://10.0.2.2:8080"
+    const val DEFAULT_HTTP_BASE_URL = "http://10.0.2.2:8080/"
+
+    /** Derives the WebSocket origin (ws/wss) from a REST base URL (http/https), same host+port. */
+    fun deriveWsBaseUrl(httpBaseUrl: String): String {
+        val trimmed = httpBaseUrl.trimEnd('/')
+        return when {
+            trimmed.startsWith("https://") -> "wss://" + trimmed.removePrefix("https://")
+            trimmed.startsWith("http://") -> "ws://" + trimmed.removePrefix("http://")
+            else -> trimmed
+        }
+    }
 }
 
 /**
@@ -37,9 +48,14 @@ class AppContainer(context: Context) {
 
     val keyStorage = SecureKeyStorage(applicationContext)
 
+    private val httpBaseUrl: String = keyStorage.loadServerBaseUrl()
+        ?.let { it.trimEnd('/') + "/" }
+        ?: ServerConfig.DEFAULT_HTTP_BASE_URL
+    private val wsBaseUrl: String = ServerConfig.deriveWsBaseUrl(httpBaseUrl)
+
     private val database by lazy { AppDatabase.create(applicationContext, keyStorage.getOrCreateDatabasePassphrase()) }
 
-    private val serverApi = ApiClient.create(ServerConfig.HTTP_BASE_URL, json)
+    private val serverApi = ApiClient.create(httpBaseUrl, json)
 
     val keyRepository by lazy { KeyRepository(keyStorage, serverApi) }
 
@@ -58,7 +74,7 @@ class AppContainer(context: Context) {
     val webSocketClient by lazy {
         WebSocketClient(
             client = ApiClient.webSocketHttpClient(),
-            wsBaseUrl = ServerConfig.WS_BASE_URL,
+            wsBaseUrl = wsBaseUrl,
             scope = applicationScope,
             onMessagePushed = {
                 applicationScope.launch { runCatching { chatRepository.syncIncomingMessages() } }

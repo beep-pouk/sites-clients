@@ -21,12 +21,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.securechat.app.AppContainer
+import com.securechat.app.ServerConfig
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(container: AppContainer) {
     var displayName by remember { mutableStateOf(container.keyStorage.loadDisplayName() ?: "") }
     var saved by remember { mutableStateOf(false) }
+    var serverUrl by remember {
+        mutableStateOf(container.keyStorage.loadServerBaseUrl() ?: ServerConfig.DEFAULT_HTTP_BASE_URL.trimEnd('/'))
+    }
+    var serverUrlSaved by remember { mutableStateOf(false) }
     val userId = remember { container.keyRepository.localUserId }
 
     Scaffold(topBar = { TopAppBar(title = { Text("Settings") }) }) { padding ->
@@ -53,6 +58,35 @@ fun SettingsScreen(container: AppContainer) {
                 modifier = Modifier.padding(top = 8.dp),
             ) { Text("Save") }
             if (saved) Text("Saved", style = MaterialTheme.typography.labelSmall)
+
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Server address", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = "The relay server's address, e.g. https://your-app.onrender.com. " +
+                    "Restart the app after changing this for it to take effect.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            OutlinedTextField(
+                value = serverUrl,
+                onValueChange = {
+                    serverUrl = it
+                    serverUrlSaved = false
+                },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+            )
+            Button(
+                onClick = {
+                    container.keyStorage.saveServerBaseUrl(serverUrl.trim())
+                    serverUrlSaved = true
+                },
+                modifier = Modifier.padding(top = 8.dp),
+            ) { Text("Save") }
+            if (serverUrlSaved) {
+                Text("Saved - close and reopen the app to connect to this server", style = MaterialTheme.typography.labelSmall)
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
             Text("Your ID", style = MaterialTheme.typography.titleMedium)
