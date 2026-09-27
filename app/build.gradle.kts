@@ -13,8 +13,8 @@ android {
         applicationId = "com.securechat.app"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
@@ -23,11 +23,26 @@ android {
         }
     }
 
+    // The release key never lives in the repo: point these env vars at it to produce a signed,
+    // non-debuggable APK. Without them the release build is simply left unsigned.
+    val releaseKeystore = System.getenv("SECURECHAT_KEYSTORE")
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("SECURECHAT_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("SECURECHAT_KEY_ALIAS") ?: "securechat"
+                keyPassword = System.getenv("SECURECHAT_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro", "proguard-release.pro")
+            if (releaseKeystore != null) signingConfig = signingConfigs.getByName("release")
         }
         debug {
             isMinifyEnabled = true
