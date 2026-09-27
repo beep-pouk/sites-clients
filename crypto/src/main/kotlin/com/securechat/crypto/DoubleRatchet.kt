@@ -71,6 +71,7 @@ class RatchetSession private constructor(
         sendMessageNumber += 1
 
         val ciphertext = CryptoPrimitives.aesGcmEncrypt(messageKey, plaintext, associatedData + header.encode())
+        messageKey.fill(0) // forward secrecy: this key encrypts exactly one message, ever
         return RatchetMessage(header, ciphertext)
     }
 
@@ -102,6 +103,8 @@ class RatchetSession private constructor(
             CryptoPrimitives.aesGcmDecrypt(messageKey, message.ciphertext, associatedData + message.header.encode())
         } catch (e: Exception) {
             throw MessageAuthenticationFailed()
+        } finally {
+            messageKey.fill(0) // forward secrecy: erase immediately whether decryption succeeded or not
         }
 
     private fun skipMessageKeys(until: Int) {
@@ -127,9 +130,16 @@ class RatchetSession private constructor(
         receiveMessageNumber = 0
         remoteRatchetPublicKey = newRemotePublicKey
 
-        val (rkAfterReceive, ck1) = kdfRootKey(rootKey, CryptoPrimitives.x25519Agree(selfRatchetPrivateKey, newRemotePublicKey))
+        // The first DH uses our OLD ratchet key against their new one; the second uses our NEW
+        // ratchet key (generated below) against the same peer key - these are deliberately
+        // different keys, per the spec's DHRatchet(). The old key has exactly one legitimate use
+        // (the first DH below), so it's wiped immediately after rather than kept alive any longer.
+        val oldSelfPrivateKey = selfRatchetPrivateKey
+
+        val (rkAfterReceive, ck1) = kdfRootKey(rootKey, CryptoPrimitives.x25519Agree(oldSelfPrivateKey, newRemotePublicKey))
         rootKey = rkAfterReceive
         receivingChainKey = ck1
+        oldSelfPrivateKey.fill(0)
 
         selfRatchetPrivateKey = CryptoPrimitives.generateX25519PrivateKey()
         selfRatchetPublicKey = CryptoPrimitives.x25519PublicFromPrivate(selfRatchetPrivateKey)

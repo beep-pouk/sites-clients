@@ -6,6 +6,7 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
+import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
@@ -41,28 +42,32 @@ private fun ApplicationCall.hasValidOwnershipProof(storage: ServerStorage, userI
 
 fun Route.registerRoutes(storage: ServerStorage, connections: ConnectionRegistry, json: Json) {
     route("/v1") {
-        post("/register") {
-            val request = call.receive<RegisterRequest>()
-            val existingSigningKey = storage.getIdentitySigningKey(request.userId)
-            if (existingSigningKey != null && !RegistrationAuth.verifiesAgainstExistingIdentity(request, existingSigningKey)) {
-                return@post call.respond(
-                    HttpStatusCode.Forbidden,
-                    ErrorResponse("Registration signature does not match the identity already on file for this userId"),
-                )
+        rateLimit(RegisterRateLimit) {
+            post("/register") {
+                val request = call.receive<RegisterRequest>()
+                val existingSigningKey = storage.getIdentitySigningKey(request.userId)
+                if (existingSigningKey != null && !RegistrationAuth.verifiesAgainstExistingIdentity(request, existingSigningKey)) {
+                    return@post call.respond(
+                        HttpStatusCode.Forbidden,
+                        ErrorResponse("Registration signature does not match the identity already on file for this userId"),
+                    )
+                }
+                storage.registerUser(request)
+                call.respond(HttpStatusCode.OK)
             }
-            storage.registerUser(request)
-            call.respond(HttpStatusCode.OK)
         }
 
-        post("/prekeys/{userId}/upload") {
-            val userId = call.parameters["userId"]
-                ?: return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("missing userId"))
-            if (!call.hasValidOwnershipProof(storage, userId)) {
-                return@post call.respond(HttpStatusCode.Forbidden, ErrorResponse("missing or invalid ownership proof"))
+        rateLimit(PrekeyUploadRateLimit) {
+            post("/prekeys/{userId}/upload") {
+                val userId = call.parameters["userId"]
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("missing userId"))
+                if (!call.hasValidOwnershipProof(storage, userId)) {
+                    return@post call.respond(HttpStatusCode.Forbidden, ErrorResponse("missing or invalid ownership proof"))
+                }
+                val request = call.receive<UploadOneTimePreKeysRequest>()
+                storage.addOneTimePreKeys(userId, request.oneTimePreKeys)
+                call.respond(HttpStatusCode.OK)
             }
-            val request = call.receive<UploadOneTimePreKeysRequest>()
-            storage.addOneTimePreKeys(userId, request.oneTimePreKeys)
-            call.respond(HttpStatusCode.OK)
         }
 
         get("/prekeys/{userId}") {
@@ -73,14 +78,16 @@ fun Route.registerRoutes(storage: ServerStorage, connections: ConnectionRegistry
             call.respond(bundle)
         }
 
-        post("/messages") {
-            val request = call.receive<SendMessageRequest>()
-            if (!storage.userExists(request.recipientUserId)) {
-                return@post call.respond(HttpStatusCode.NotFound, ErrorResponse("unknown recipient"))
+        rateLimit(SendMessageRateLimit) {
+            post("/messages") {
+                val request = call.receive<SendMessageRequest>()
+                if (!storage.userExists(request.recipientUserId)) {
+                    return@post call.respond(HttpStatusCode.NotFound, ErrorResponse("unknown recipient"))
+                }
+                val stored = storage.storeMessage(request)
+                connections.push(request.recipientUserId, json.encodeToString(stored))
+                call.respond(SendMessageResponse(stored.messageId))
             }
-            val stored = storage.storeMessage(request)
-            connections.push(request.recipientUserId, json.encodeToString(stored))
-            call.respond(SendMessageResponse(stored.messageId))
         }
 
         get("/messages/{userId}") {

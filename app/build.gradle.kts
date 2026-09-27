@@ -84,6 +84,9 @@ dependencies {
     implementation(libs.androidx.sqlite)
     implementation(libs.sqlcipher.android)
     implementation(libs.androidx.security.crypto)
+    implementation(libs.androidx.biometric)
+    implementation(libs.androidx.fragment.ktx)
+    implementation(libs.androidx.lifecycle.process)
 
     implementation(libs.retrofit.core)
     implementation(libs.retrofit.converter.kotlinx.serialization)

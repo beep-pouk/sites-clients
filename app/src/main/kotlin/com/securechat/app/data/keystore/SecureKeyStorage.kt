@@ -1,6 +1,7 @@
 package com.securechat.app.data.keystore
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.util.Base64
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
@@ -25,9 +26,26 @@ import kotlinx.serialization.json.Json
 class SecureKeyStorage(context: Context) {
     private val json = Json { ignoreUnknownKeys = true }
 
-    private val masterKey = MasterKey.Builder(context.applicationContext)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
+    // StrongBox keeps the key material in a separate, tamper-resistant security chip rather than
+    // just the main SoC's trusted execution environment - meaningfully raises the bar against key
+    // extraction on the (still limited) set of devices that have the hardware. Most devices don't,
+    // and requesting it there throws, so this always falls back to the normal TEE-backed key.
+    private val masterKey = buildMasterKey(context.applicationContext)
+
+    private fun buildMasterKey(appContext: Context): MasterKey {
+        val supportsStrongBox = appContext.packageManager.hasSystemFeature(PackageManager.FEATURE_STRONGBOX_KEYSTORE)
+        if (supportsStrongBox) {
+            runCatching {
+                return MasterKey.Builder(appContext)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .setRequestStrongBoxBacked(true)
+                    .build()
+            }
+        }
+        return MasterKey.Builder(appContext)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+    }
 
     private val prefs = EncryptedSharedPreferences.create(
         context.applicationContext,
